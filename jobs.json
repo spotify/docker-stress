@@ -1,0 +1,12 @@
+[
+    {"image": "ubuntu:12.04", "command": ["sh", "-c", "apt-get update; while :; do sleep 1; done"]},
+    {"image": "linux/postgres", "command": [], "ports": [5432]},
+    {"image": "tutum/wordpress", "command": [], "ports": [80, 3306]},
+    {"image": "dockerfile/nginx", "command": [], "ports": [80]},
+    {"image": "skxskx/memcached", "command": [], "ports": [11211]},
+    {"image": "dockerfile/redis", "command": [], "ports": [6379]},
+    {"image": "johannesh/bind10", "command": [], "ports": [53]},
+    {"image": "dockerfiles/django-uwsgi-nginx", "command": [], "ports": [80]},
+    {"image": "jacksoncage/varnish", "command": [], "ports": [80]},
+    {"image": "sameersbn/redmine", "command": [], "ports": [80]}
+]

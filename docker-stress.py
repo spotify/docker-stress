@@ -1,0 +1,127 @@
+#!/usr/bin/env python
+import logging
+
+from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter, FileType
+from json import load
+from logging import WARNING, DEBUG
+from multiprocessing import Process
+from random import choice, random
+from time import sleep
+from traceback import format_exc
+from urlparse import urlparse
+from uuid import uuid4
+
+from mail import send_mail
+from await import await
+from docker_client import CliDockerClient
+from docker_client import DEFAULT_DOCKER_CLI
+from docker_client import DEFAULT_DOCKER_ENDPOINT
+from docker_util import running, connectable
+from docker_util import successfully_destroyed, register_teardown
+from rate_limit import rate_limited
+
+
+log = logging.getLogger('docker-stress')
+
+
+@rate_limited('email', 20, 0.005)
+def send_alert(email=None, message=None):
+    send_mail(to=email, message=message)
+
+
+def work(client=None, job=None, hostname=None, nametag=None):
+    assert client and job and hostname and nametag
+    print 'starting job: %s' % job
+
+    name = "stress_" + nametag + "_" + uuid4().hex[:10]
+    try:
+        container_id = client.start_new(name=name, **job)
+        await('running', lambda: running(client, container_id))
+        # TODO (dano): Make this more evil and kill it etc in mid-setup
+        await('connectable', lambda: connectable(client, container_id, hostname, job.get('ports', [])))
+        client.kill(container_id)
+        await('not running after kill', lambda: not running(client, container_id))
+        await('destroy', lambda: successfully_destroyed(client, container_id))
+        await('inspect after destroy', lambda: not client.inspect_container(container_id))
+    except Exception, e1:
+        try:
+            client.kill(name)
+        except Exception, e2:
+            log.debug('kill failed: %s', e2)
+        try:
+            client.destroy(name)
+        except Exception, e2:
+            log.debug('destroy failed: %s', e2)
+        raise e1
+
+
+def worker(client=None, jobs=None, email=None, **kwargs):
+    assert client and jobs
+    while True:
+        try:
+            work(client=client, job=choice(jobs), **kwargs)
+        except Exception, e:
+            log.error('failure: %s', e)
+            send_alert(email=email, message='failure: %s\n\n%s' % (e, format_exc()))
+            sleep(1)
+
+
+def spawn(f, *args, **kwargs):
+    t = Process(target=f, args=args, kwargs=kwargs)
+    t.start()
+    return t
+
+
+def after(delay, f):
+    sleep(delay)
+    return f()
+
+
+def main():
+    parser = ArgumentParser(description='docker stress test', formatter_class=ArgumentDefaultsHelpFormatter)
+    parser.add_argument('-f', '--jobs', default='jobs.json', type=FileType('r'), help='jobs file')
+    parser.add_argument('-d', '--cli', default=DEFAULT_DOCKER_CLI, help='docker cli')
+    parser.add_argument('-H', '--endpoint', default=DEFAULT_DOCKER_ENDPOINT, help='docker endpoint')
+    parser.add_argument('-c', '--concurrency', type=int, default=1, help='number of containers to run concurrently')
+    parser.add_argument('-e', '--email', nargs='*', type=str, help='Email address to spam with failure alerts')
+    parser.add_argument('-v', '--verbosity', action='count', default=0)
+
+    args = parser.parse_args()
+
+    logging.basicConfig(format='%(asctime)s %(levelname)-7s %(filename)s:%(lineno)d %(message)s',
+                        level=max(DEBUG, WARNING - args.verbosity * 10))
+
+    client = CliDockerClient(docker=args.cli, endpoint=args.endpoint)
+
+    hostname = urlparse(args.endpoint).hostname or 'localhost'
+
+    jobs = load(args.jobs)
+    log.debug('jobs: %s', jobs)
+
+    workers = []
+    nametag = uuid4().hex[:10]
+
+    def kill_workers():
+        for p in workers:
+            try:
+                p.terminate()
+                p.join()
+            except Exception, e:
+                log.debug(e)
+                pass
+
+    def start_worker():
+        return spawn(worker, client=client, jobs=jobs, hostname=hostname, nametag=nametag, email=args.email)
+
+    register_teardown(client, lambda: client.list_containers(needle=nametag), before=kill_workers)
+
+    workers.extend(after(random(), start_worker) for i in xrange(args.concurrency))
+
+    while any(w.is_alive() for w in workers):
+        for w in workers:
+            # join without timeout might swallow ctrl-c
+            w.join(0.1)
+
+
+if __name__ == '__main__':
+    main()
