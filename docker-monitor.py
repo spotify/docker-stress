@@ -63,10 +63,10 @@ def worker(client=None, hostname=None, interval=None, nametag=None, email=None):
         try:
             work(client=client, hostname=hostname, nametag=nametag)
         except (DockerClientError, TimeoutError, PreconditionError), e:
-            log.error('docker is unhealty: %s', e)
+            log.error('docker is unhealthy: %s', e)
             send_alert(email=email, message='failure: %s\n\n%s' % (e, format_exc()))
         except Exception, e:
-            log.exception("docker is unhealty: %s", e)
+            log.exception("docker is unhealthy: %s", e)
             send_alert(email=email, message='failure: %s\n\n%s' % (e, format_exc()))
         else:
             log.info('docker is healthy')
