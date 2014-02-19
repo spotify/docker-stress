@@ -10,12 +10,12 @@ from traceback import format_exc
 from urlparse import urlparse
 from uuid import uuid4
 
-from mail import send_mail
-from await import await, TimeoutError, PreconditionError
-from docker_client import CliDockerClient, DockerClientError, DEFAULT_DOCKER_CLI, DEFAULT_DOCKER_ENDPOINT
-from docker_util import running, connectable, register_teardown
-from rate_limit import rate_limited
-from riemann_util import get_riemann
+from spotify.docker_stress.mail import send_mail
+from spotify.docker_stress.await import await, TimeoutError, PreconditionError
+from spotify.docker_stress.docker_client import CliDockerClient, DockerClientError, DEFAULT_DOCKER_CLI, DEFAULT_DOCKER_ENDPOINT
+from spotify.docker_stress.docker_util import running, connectable, register_teardown
+from spotify.docker_stress.rate_limit import rate_limited
+from spotify.docker_stress.riemann_util import get_riemann
 
 
 log = logging.getLogger('docker-monitor')

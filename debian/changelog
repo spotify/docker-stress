@@ -1,0 +1,5 @@
+docker-stress (0.1) unstable; urgency=low
+
+  - initial packaging
+
+ -- Drew Csillag <drewc@spotify.com>  Wed, 19 Feb 2014 11:43:43 +0200
