@@ -2,9 +2,9 @@ Source: docker-stress
 Section: non-free/net
 Priority: extra
 Maintainer: Daniel Norberg <dano@spotify.com>
-Build-Depends: debhelper (>=8), python-all (>= 2.7)
+Build-Depends: debhelper (>=8), python-all (>= 2.6)
 Standards-Version: 3.7.2
-X-Python-Version: >= 2.7
+X-Python-Version: >= 2.6
 
 Package: docker-stress
 Architecture: all
