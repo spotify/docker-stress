@@ -11,14 +11,14 @@ from traceback import format_exc
 from urlparse import urlparse
 from uuid import uuid4
 
-from mail import send_mail
-from await import await
-from docker_client import CliDockerClient
-from docker_client import DEFAULT_DOCKER_CLI
-from docker_client import DEFAULT_DOCKER_ENDPOINT
-from docker_util import running, connectable
-from docker_util import successfully_destroyed, register_teardown
-from rate_limit import rate_limited
+from spotify.docker_stress.mail import send_mail
+from spotify.docker_stress.await import await
+from spotify.docker_stress.docker_client import CliDockerClient
+from spotify.docker_stress.docker_client import DEFAULT_DOCKER_CLI
+from spotify.docker_stress.docker_client import DEFAULT_DOCKER_ENDPOINT
+from spotify.docker_stress.docker_util import running, connectable
+from spotify.docker_stress.docker_util import successfully_destroyed, register_teardown
+from spotify.docker_stress.rate_limit import rate_limited
 
 
 log = logging.getLogger('docker-stress')
