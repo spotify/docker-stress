@@ -15,6 +15,7 @@ from await import await, TimeoutError, PreconditionError
 from docker_client import CliDockerClient, DockerClientError, DEFAULT_DOCKER_CLI, DEFAULT_DOCKER_ENDPOINT
 from docker_util import running, connectable, register_teardown
 from rate_limit import rate_limited
+from riemann_util import get_riemann
 
 
 log = logging.getLogger('docker-monitor')
@@ -26,10 +27,14 @@ def send_alert(email=None, message=None):
 
 
 def ping(hostname, port, nametag):
+    sleep(10) # don't ask me why, but this makes things happy
+    log.debug("connecting to %s:%s" % (hostname, port))
     s = create_connection((hostname, port))
     message = 'ping! %s' % (nametag, )
     try:
+        log.debug("Sending [%s]" % message)
         s.sendall(message)
+        log.debug("attempting to receive")
         reply = s.recv(64)
         if reply != message:
             raise Exception('bad reply: %s' % reply)
@@ -41,7 +46,7 @@ def work(client=None, hostname=None, nametag=None):
     assert client and hostname
     name = "monitor_" + nametag + "_" + uuid4().hex[:10]
     container_id = client.start_new(image='ubuntu:12.04',
-                                    command=['sh', '-c', 'apt-get install nmap -qq --force-yes && ' +
+                                    command=['/bin/sh', '-c', 'apt-get install nmap -qq --force-yes && ' +
                                                          'ncat -e /bin/cat -k -l 4711'],
                                     ports=[4711],
                                     name=name)
@@ -57,18 +62,23 @@ def work(client=None, hostname=None, nametag=None):
         client.destroy(container_id)
 
 
-def worker(client=None, hostname=None, interval=None, nametag=None, email=None):
-    assert client and hostname and interval and nametag
+def worker(client=None, hostname=None, interval=None, nametag=None, email=None, riemann=None):
+    assert client and hostname and interval and nametag and riemann
     while True:
         try:
+            log.debug("work starting")
             work(client=client, hostname=hostname, nametag=nametag)
+            log.debug("work complete")
         except (DockerClientError, TimeoutError, PreconditionError), e:
+            riemann.send_docker_unhealthy()
             log.error('docker is unhealthy: %s', e)
             send_alert(email=email, message='failure: %s\n\n%s' % (e, format_exc()))
         except Exception, e:
-            log.exception("docker is unhealthy: %s", e)
+            riemann.send_docker_unhealthy()
+            log.error('docker is unhealthy: %s', e)
             send_alert(email=email, message='failure: %s\n\n%s' % (e, format_exc()))
         else:
+            riemann.send_docker_healthy()
             log.info('docker is healthy')
         try:
             stragglers = client.list_containers(needle=nametag)
@@ -100,6 +110,7 @@ def main():
     parser.add_argument('-t', '--interval', type=int, default=5 * 60, help='health check interval')
     parser.add_argument('-e', '--email', nargs='*', type=str, help='Email address to spam with failure alerts')
     parser.add_argument('-v', '--verbosity', action='count', default=0)
+    parser.add_argument('-r', '--riemann', default=None, help='(optional) riemann proto:host:port to emit events to.  e.g. udp:localhost:5555')
     parser.add_argument('--syslog', help='log to syslog')
 
     args = parser.parse_args()
@@ -113,11 +124,15 @@ def main():
 
     register_teardown(client, lambda: client.list_containers(needle=nametag))
 
+    riemann = get_riemann(args.riemann, 2 * args.interval, log)
+
     worker(client=client,
            hostname=urlparse(args.endpoint).hostname,
            interval=args.interval,
            nametag=nametag,
-           email=args.email)
+           email=args.email,
+           riemann=riemann)
+
 
 if __name__ == '__main__':
     main()

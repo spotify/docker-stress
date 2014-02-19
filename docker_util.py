@@ -71,7 +71,10 @@ def teardown(client, containers):
 def register_teardown(client, containers, before=None):
     def handle_signals(signal, frame):
         before and before()
-        teardown(client, containers())
+        try:
+            teardown(client, containers())
+        except e:
+            log.error("Caught exception during teardown: %s" % e)
         _exit(1)
 
     atexit.register(lambda: teardown(client, containers()))
