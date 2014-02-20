@@ -8,6 +8,6 @@ X-Python-Version: >= 2.6
 
 Package: docker-stress
 Architecture: all
-Depends: python, python-setuptools
+Depends: python, python-setuptools, python-bernhard
 Description: Spotify docker stress testing and monitoring tool
 
