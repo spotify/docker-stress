@@ -1,12 +1,13 @@
 import logging
 from json import loads
+from os import environ
 from subprocess import Popen, PIPE
 
 
 log = logging.getLogger(__name__)
 
 
-DEFAULT_DOCKER_ENDPOINT = 'unix:///var/run/docker.sock'
+DEFAULT_DOCKER_ENDPOINT = environ.get('DOCKER_HOST', 'unix:///var/run/docker.sock')
 
 try:
     p = Popen('which docker', stdout=PIPE, stderr=PIPE, shell=True)
