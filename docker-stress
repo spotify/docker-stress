@@ -29,7 +29,7 @@ def send_alert(email=None, message=None):
     send_mail(to=email, message=message)
 
 
-def work(client=None, job=None, hostname=None, nametag=None):
+def work(client=None, job=None, hostname=None, nametag=None, ttl=None):
     assert client and job and hostname and nametag
     print 'starting job: %s' % job
 
@@ -39,6 +39,8 @@ def work(client=None, job=None, hostname=None, nametag=None):
         await('running', lambda: running(client, container_id))
         # TODO (dano): Make this more evil and kill it etc in mid-setup
         await('connectable', lambda: connectable(client, container_id, hostname, job.get('ports', [])))
+        if ttl:
+            sleep(ttl)
         client.kill(container_id)
         await('not running after kill', lambda: not running(client, container_id))
         await('destroy', lambda: successfully_destroyed(client, container_id))
@@ -85,6 +87,7 @@ def main():
     parser.add_argument('-d', '--cli', default=DEFAULT_DOCKER_CLI, help='docker cli')
     parser.add_argument('-H', '--endpoint', default=DEFAULT_DOCKER_ENDPOINT, help='docker endpoint')
     parser.add_argument('-c', '--concurrency', type=int, default=1, help='number of containers to run concurrently')
+    parser.add_argument('-t', '--ttl', type=int, default=0, help='Time in seconds to let containers run')
     parser.add_argument('-e', '--email', nargs='*', type=str, help='Email address to spam with failure alerts')
     parser.add_argument('-v', '--verbosity', action='count', default=0)
 
@@ -117,7 +120,13 @@ def main():
                 pass
 
     def start_worker():
-        return spawn(worker, client=client, jobs=jobs, hostname=hostname, nametag=nametag, email=args.email)
+        return spawn(worker,
+                     client=client,
+                     jobs=jobs,
+                     hostname=hostname,
+                     nametag=nametag,
+                     email=args.email,
+                     ttl=args.ttl)
 
     # Ensure that we get to clean up even if we get a SIGTERM
     signal(SIGTERM, lambda signum, stack_frame: exit(1))
