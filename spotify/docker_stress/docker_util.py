@@ -1,9 +1,7 @@
 import logging
-import atexit
-from os import _exit
-from signal import signal, SIGINT, SIGTERM, SIGQUIT
 from socket import create_connection
 from time import sleep
+from urlparse import urlparse
 
 from docker_client import DockerClientError
 
@@ -50,35 +48,25 @@ def connectable(client, container_id, hostname, ports):
     return True
 
 
-def teardown(client, containers):
-    print 'Tearing down...'
-    for name in containers:
-        exists = True
-        try:
-            exists = client.inspect_container(name)
-        finally:
-            if exists:
-                try:
-                    client.kill(name)
-                except:
-                    pass
-                try:
-                    client.destroy(name)
-                except:
-                    pass
+def destroy_containers(client, nametag):
+    while True:
+        sleep(1)
+        containers = client.list_containers(needle=nametag)
+        if not containers:
+            break
+        for container in containers:
+            try:
+                client.kill(container)
+            except Exception, e:
+                log.debug('kill failed: %s', e)
+        for container in containers:
+            try:
+                client.destroy(container)
+            except Exception, e:
+                log.debug('destroy failed: %s', e)
 
 
-def register_teardown(client, containers, before=None):
-    def handle_signals(signal, frame):
-        before and before()
-        try:
-            teardown(client, containers())
-        except e:
-            log.error("Caught exception during teardown: %s" % e)
-        _exit(1)
-
-    atexit.register(lambda: teardown(client, containers()))
-
-    signal(SIGINT, handle_signals)
-    signal(SIGTERM, handle_signals)
-    signal(SIGQUIT, handle_signals)
+def endpoint_address(endpoint):
+    if '://' not in endpoint:
+        endpoint = 'tcp://' + endpoint
+    return urlparse(endpoint).hostname or 'localhost'

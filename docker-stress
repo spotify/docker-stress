@@ -6,9 +6,9 @@ from json import load
 from logging import WARNING, DEBUG
 from multiprocessing import Process
 from random import choice, random
+from signal import signal, SIGINT, SIG_IGN, SIGTERM
 from time import sleep
 from traceback import format_exc
-from urlparse import urlparse
 from uuid import uuid4
 
 from spotify.docker_stress.mail import send_mail
@@ -16,8 +16,8 @@ from spotify.docker_stress.await import await
 from spotify.docker_stress.docker_client import CliDockerClient
 from spotify.docker_stress.docker_client import DEFAULT_DOCKER_CLI
 from spotify.docker_stress.docker_client import DEFAULT_DOCKER_ENDPOINT
-from spotify.docker_stress.docker_util import running, connectable
-from spotify.docker_stress.docker_util import successfully_destroyed, register_teardown
+from spotify.docker_stress.docker_util import running, connectable, endpoint_address
+from spotify.docker_stress.docker_util import successfully_destroyed, destroy_containers
 from spotify.docker_stress.rate_limit import rate_limited
 
 
@@ -57,6 +57,8 @@ def work(client=None, job=None, hostname=None, nametag=None):
 
 def worker(client=None, jobs=None, email=None, **kwargs):
     assert client and jobs
+    # Let parent deal with Ctrl-C
+    signal(SIGINT, SIG_IGN)
     while True:
         try:
             work(client=client, job=choice(jobs), **kwargs)
@@ -93,7 +95,7 @@ def main():
 
     client = CliDockerClient(docker=args.cli, endpoint=args.endpoint)
 
-    hostname = urlparse(args.endpoint).hostname or 'localhost'
+    hostname = endpoint_address(args.endpoint)
 
     jobs = load(args.jobs)
     log.debug('jobs: %s', jobs)
@@ -105,6 +107,10 @@ def main():
         for p in workers:
             try:
                 p.terminate()
+            except Exception, e:
+                log.debug(e)
+                pass
+            try:
                 p.join()
             except Exception, e:
                 log.debug(e)
@@ -113,14 +119,19 @@ def main():
     def start_worker():
         return spawn(worker, client=client, jobs=jobs, hostname=hostname, nametag=nametag, email=args.email)
 
-    register_teardown(client, lambda: client.list_containers(needle=nametag), before=kill_workers)
+    # Ensure that we get to clean up even if we get a SIGTERM
+    signal(SIGTERM, lambda signum, stack_frame: exit(1))
 
-    workers.extend(after(random(), start_worker) for i in xrange(args.concurrency))
-
-    while any(w.is_alive() for w in workers):
-        for w in workers:
-            # join without timeout might swallow ctrl-c
-            w.join(0.1)
+    try:
+        workers.extend(after(random(), start_worker) for i in xrange(args.concurrency))
+        while True:
+            sleep(1)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        print "Terminating workers and cleaning up..."
+        kill_workers()
+        destroy_containers(client, nametag)
 
 
 if __name__ == '__main__':

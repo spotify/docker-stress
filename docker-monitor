@@ -3,17 +3,18 @@ import logging
 
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 from logging import WARNING, DEBUG
+from signal import signal, SIGTERM
 from socket import create_connection
 from threading import Thread
 from time import sleep
 from traceback import format_exc
-from urlparse import urlparse
 from uuid import uuid4
 
 from spotify.docker_stress.mail import send_mail
 from spotify.docker_stress.await import await, TimeoutError, PreconditionError
-from spotify.docker_stress.docker_client import CliDockerClient, DockerClientError, DEFAULT_DOCKER_CLI, DEFAULT_DOCKER_ENDPOINT
-from spotify.docker_stress.docker_util import running, connectable, register_teardown
+from spotify.docker_stress.docker_client import CliDockerClient, DockerClientError
+from spotify.docker_stress.docker_client import DEFAULT_DOCKER_CLI, DEFAULT_DOCKER_ENDPOINT
+from spotify.docker_stress.docker_util import running, connectable, destroy_containers, endpoint_address
 from spotify.docker_stress.rate_limit import rate_limited
 from spotify.docker_stress.riemann_util import get_riemann
 
@@ -47,7 +48,7 @@ def work(client=None, hostname=None, nametag=None):
     name = "monitor_" + nametag + "_" + uuid4().hex[:10]
     container_id = client.start_new(image='ubuntu:12.04',
                                     command=['/bin/sh', '-c', 'apt-get install nmap -qq --force-yes && ' +
-                                                         'ncat -e /bin/cat -k -l 4711'],
+                                             'ncat -e /bin/cat -k -l 4711'],
                                     ports=[4711],
                                     name=name)
     try:
@@ -110,7 +111,8 @@ def main():
     parser.add_argument('-t', '--interval', type=int, default=5 * 60, help='health check interval')
     parser.add_argument('-e', '--email', nargs='*', type=str, help='Email address to spam with failure alerts')
     parser.add_argument('-v', '--verbosity', action='count', default=0)
-    parser.add_argument('-r', '--riemann', default=None, help='(optional) riemann proto:host:port to emit events to.  e.g. udp:localhost:5555')
+    parser.add_argument('-r', '--riemann', default=None, help='(optional) riemann proto:host:port to emit events to. ' +
+                                                              'e.g. udp:localhost:5555')
     parser.add_argument('--syslog', help='log to syslog')
 
     args = parser.parse_args()
@@ -122,16 +124,22 @@ def main():
 
     client = CliDockerClient(docker=args.cli, endpoint=args.endpoint)
 
-    register_teardown(client, lambda: client.list_containers(needle=nametag))
-
     riemann = get_riemann(args.riemann, 2 * args.interval, log)
 
-    worker(client=client,
-           hostname=urlparse(args.endpoint).hostname,
-           interval=args.interval,
-           nametag=nametag,
-           email=args.email,
-           riemann=riemann)
+    signal(SIGTERM, lambda signum, stack_frame: exit(1))
+
+    try:
+        worker(client=client,
+               hostname=endpoint_address(args.endpoint),
+               interval=args.interval,
+               nametag=nametag,
+               email=args.email,
+               riemann=riemann)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        print "Cleaning up..."
+        destroy_containers(client, nametag)
 
 
 if __name__ == '__main__':

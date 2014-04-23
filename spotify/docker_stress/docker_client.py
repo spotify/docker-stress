@@ -101,5 +101,7 @@ class CliDockerClient(object):
         if not needle:
             return self.cli_check('ps', '-q').splitlines()
         else:
-            words = self.cli_check('ps').split()
-            return [word for word in words if needle in word]
+            lines = self.cli_check('ps').splitlines()[1:]
+            matches = [word for line in lines for word in line.split() if needle in word]
+            log.debug('list_containers: needle=%s, matches=%s', needle, matches)
+            return matches
